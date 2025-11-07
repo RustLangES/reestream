@@ -1,0 +1,10 @@
+[package]
+name = "reestream"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+streamhub = "0.2.4"
+tokio = { version = "1.48.0", default-features = false, features = ["macros", "rt-multi-thread"] }
+toml = "0.9.8"
