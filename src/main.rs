@@ -8,12 +8,14 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{RwLock, mpsc, watch};
+use tokio::sync::{Notify, RwLock, mpsc, watch};
 use tokio::time::timeout;
 use tokio_native_tls::{TlsConnector, native_tls};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::filter::LevelFilter;
 use url::Url;
+
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use rml_rtmp::handshake::{Handshake, HandshakeProcessResult, PeerType};
 use rml_rtmp::sessions::{
@@ -199,6 +201,8 @@ struct PushClient {
     tx_feed: mpsc::UnboundedSender<Bytes>,
     client_state: Arc<RwLock<ClientStateWrapper>>,
     publish_ready_rx: watch::Receiver<bool>,
+
+    notify: Arc<Notify>,
 }
 
 struct ClientStateWrapper {
@@ -299,12 +303,14 @@ impl PushClient {
         let client_state = Arc::new(RwLock::new(client_state));
 
         let (publish_ready_tx, publish_ready_rx) = watch::channel(false);
+        let notify = Arc::new(Notify::new());
 
         {
             let client_state_reader = client_state.clone();
             let tx_clone = tx.clone();
             let addr_clone = addr.clone();
             let publish_ready_tx = publish_ready_tx.clone();
+            let notify = notify.clone();
 
             tokio::spawn(async move {
                 let mut buf = [0u8; 8192];
@@ -316,8 +322,11 @@ impl PushClient {
                         }
                         Ok(n) => {
                             let mut state = client_state_reader.write().await;
-                            match state.session.handle_input(&buf[..n]) {
-                                Ok(results) => {
+
+                            // Protect handle_input from unwinding panics inside the library
+                            let res = catch_unwind(AssertUnwindSafe(|| state.session.handle_input(&buf[..n])));
+                            match res {
+                                Ok(Ok(results)) => {
                                     for r in results {
                                         match r {
                                             ClientSessionResult::OutboundResponse(packet) => {
@@ -340,50 +349,50 @@ impl PushClient {
                                                         }
                                                     }
                                                     ClientSessionEvent::PublishRequestAccepted => {
+                                                        info!("Push client publish accepted for {}", state.target_stream);
+                                                        // mark ready
+                                                        let _ = publish_ready_tx.send(true);
 
+                                                        // send buffered metadata if any
+                                                        if let Some(meta) = state.prepublish_metadata.take() {
+                                                            match state.session.publish_metadata(&meta) {
+                                                                Ok(ClientSessionResult::OutboundResponse(packet)) => {
+                                                                    let _ = tx_clone.send(Bytes::from(packet.bytes.clone()));
+                                                                }
+                                                                Ok(_) => {}
+                                                                Err(e) => {
+                                                                    error!("Error sending buffered metadata: {:?}", e);
+                                                                }
+                                                            }
+                                                        }
 
-            let _ = publish_ready_tx.send(true);
+                                                        // drain buffered video
+                                                        while let Some(vframe) = state.prepublish_video_buffer.pop_front() {
+                                                            match state.session.publish_video_data(vframe.clone(), RtmpTimestamp::new(0), true) {
+                                                                Ok(ClientSessionResult::OutboundResponse(packet)) => {
+                                                                    let _ = tx_clone.send(Bytes::from(packet.bytes.clone()));
+                                                                }
+                                                                Ok(_) => {}
+                                                                Err(e) => {
+                                                                    error!("Error sending buffered video frame: {:?}", e);
+                                                                    break;
+                                                                }
+                                                            }
+                                                        }
 
-            // enviar metadata bufferizada si la hay
-            if let Some(meta) = state.prepublish_metadata.take() {
-                match state.session.publish_metadata(&meta) {
-                    Ok(ClientSessionResult::OutboundResponse(packet)) => {
-                        let _ = tx_clone.send(Bytes::from(packet.bytes.clone()));
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("Error sending buffered metadata: {:?}", e);
-                    }
-                }
-            }
-
-            // enviar video bufferizado
-            while let Some(vframe) = state.prepublish_video_buffer.pop_front() {
-                match state.session.publish_video_data(vframe.clone(), RtmpTimestamp::new(0), true) {
-                    Ok(ClientSessionResult::OutboundResponse(packet)) => {
-                        let _ = tx_clone.send(Bytes::from(packet.bytes.clone()));
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("Error sending buffered video frame: {:?}", e);
-                        break;
-                    }
-                }
-            }
-
-            // enviar audio bufferizado
-            while let Some(aframe) = state.prepublish_audio_buffer.pop_front() {
-                match state.session.publish_audio_data(aframe.clone(), RtmpTimestamp::new(0), true) {
-                    Ok(ClientSessionResult::OutboundResponse(packet)) => {
-                        let _ = tx_clone.send(Bytes::from(packet.bytes.clone()));
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("Error sending buffered audio frame: {:?}", e);
-                        break;
-                    }
-                }
-            }
+                                                        // drain buffered audio
+                                                        while let Some(aframe) = state.prepublish_audio_buffer.pop_front() {
+                                                            match state.session.publish_audio_data(aframe.clone(), RtmpTimestamp::new(0), true) {
+                                                                Ok(ClientSessionResult::OutboundResponse(packet)) => {
+                                                                    let _ = tx_clone.send(Bytes::from(packet.bytes.clone()));
+                                                                }
+                                                                Ok(_) => {}
+                                                                Err(e) => {
+                                                                    error!("Error sending buffered audio frame: {:?}", e);
+                                                                    break;
+                                                                }
+                                                            }
+                                                        }
                                                     }
                                                     _ => {}
                                                 }
@@ -394,14 +403,19 @@ impl PushClient {
                                         }
                                     }
                                 }
-                                Err(e) => {
+                                Ok(Err(e)) => {
                                     error!(
                                         "Error manejando input en ClientSession (push): {:?}",
                                         e
                                     );
                                     break;
                                 }
+                                Err(panic_err) => {
+                                    error!("panic al procesar ClientSession::handle_input (push): {:?}", panic_err);
+                                    break;
+                                }
                             }
+
                             drop(state);
                         }
                         Err(e) => {
@@ -418,10 +432,12 @@ impl PushClient {
             tx_feed: tx,
             client_state,
             publish_ready_rx,
+            notify,
         })
     }
 
     async fn feed_bytes(&self, bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        // kept for compatibility but no longer used to feed publisher bytes into push client sessions
         let mut state = self.client_state.write().await;
         let results = state.session.handle_input(bytes)?;
         for r in results {
@@ -547,13 +563,18 @@ async fn handle_publisher(
 
         for res in results {
             match res {
+                // IMPORTANT: only respond to the publisher with ServerSession OutboundResponse.
+                // Do NOT forward these packets to push clients (they are server->publisher packets).
                 ServerSessionResult::OutboundResponse(packet) => {
                     if let Err(e) = inbound.write_all(&packet.bytes).await {
                         error!("Error escribiendo al publisher: {:?}", e);
                     }
                 }
                 ServerSessionResult::RaisedEvent(ev) => match ev {
-                    ServerSessionEvent::ConnectionRequested { request_id, .. } => {
+                    ServerSessionEvent::ConnectionRequested {
+                        request_id,
+                        app_name,
+                    } => {
                         if let Ok(out) = server_session.accept_request(request_id) {
                             for r in out {
                                 if let ServerSessionResult::OutboundResponse(packet) = r {
@@ -655,8 +676,7 @@ async fn handle_publisher(
                                 match state.session.publish_metadata(&metadata) {
                                     Ok(client_res) => match client_res {
                                         ClientSessionResult::OutboundResponse(packet) => {
-                                            let _ =
-                                                pc.tx_feed.send(Bytes::from(packet.bytes.clone()));
+                                            let _ = pc.tx_feed.send(Bytes::from(packet.bytes.clone()));
                                         }
                                         _ => {}
                                     },
@@ -666,7 +686,6 @@ async fn handle_publisher(
                                 }
                                 drop(state);
                             } else {
-                                // bufferiza metadata para enviarla cuando el push acepte el publish
                                 let mut state = pc.client_state.write().await;
                                 state.prepublish_metadata = Some(metadata.clone());
                                 drop(state);
@@ -681,9 +700,8 @@ async fn handle_publisher(
             }
         }
 
-        for pc in push_clients.iter() {
-            let _ = pc.feed_bytes(&read_buf[..n]).await;
-        }
+        // NOTE: Do NOT feed publisher bytes into push clients' client sessions.
+        // Each PushClient reads its own remote socket and advances its ClientSession there.
     }
 
     Ok(())
