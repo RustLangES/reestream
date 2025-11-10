@@ -1,0 +1,28 @@
+rtmps = false
+rtmp_addr = "0.0.0.0"
+rtmp_port = 1945
+stream_key = "971e8514-1580-4c4f-ac7a-04c5f705376a"
+
+# twitch
+[[platform]]
+url = "rtmp://live.twitch.tv/app"
+key = ""
+orientation = "horizontal"
+
+# facebook
+[[platform]]
+url = "rtmps://live-api-s.facebook.com:443/rtmp/"
+key = ""
+orientation = "horizontal"
+
+# instagram
+[[platform]]
+url = "rtmps://edgetee-upload-gru1-2.xx.fbcdn.net:443/rtmp/"
+key = ""
+orientation = "vertical"
+
+# youtube
+[[platform]]
+url = "rtmp://a.rtmp.youtube.com/live2"
+key = ""
+orientation = "horizontal"
