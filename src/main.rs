@@ -28,10 +28,8 @@ use rml_rtmp::sessions::{
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
-    pub rtmps: bool,
     pub rtmp_addr: String,
     pub rtmp_port: u16,
-    pub rtmps_port: Option<u16>,
     pub stream_key: String,
     pub platform: Option<Vec<Platform>>,
 }
