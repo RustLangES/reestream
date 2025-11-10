@@ -4,7 +4,21 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-serde = { version = "1.0.228", features = ["derive"] }
-streamhub = "0.2.4"
-tokio = { version = "1.48.0", default-features = false, features = ["macros", "rt-multi-thread"] }
-toml = "0.9.8"
+bytes = "1.10"
+rml_rtmp = "0.8"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", default-features = false, features = [
+    "io-std",
+    "io-util",
+    "macros",
+    "net",
+    "rt-multi-thread",
+    "time",
+    "signal",
+    "sync",
+] }
+tokio-native-tls = "0.3"
+toml = "0.9"
+tracing = { version = "0.1", features = ["log"] }
+tracing-subscriber = "0.3"
+url = { version = "2.5", features = ["serde"] }
