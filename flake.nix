@@ -41,7 +41,7 @@
           inherit src buildInputs;
         };
 
-        libraries = with pkgs; [ openssl ];
+        libraries = with pkgs; [ openssl pkgs.stdenv.cc.cc.lib ];
         # Compile all artifacts
         appDeps = craneLib.buildDepsOnly commonArgs;
 
@@ -63,7 +63,7 @@
           inherit buildInputs;
 
           packages = with pkgs; [
-          openssl.dev
+            openssl.dev
             toolchain
           ];
 

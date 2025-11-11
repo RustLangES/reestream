@@ -1,14 +1,16 @@
+use parking_lot::Mutex;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
-use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 use tracing_subscriber::filter::LevelFilter;
 
+mod bitstream_converter;
 mod client;
 mod config;
 mod error;
+mod img;
 mod provider;
 mod server;
 
@@ -49,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(addr).await?;
     info!("RTMP relay escuchando en {}", addr);
 
-    let platforms = Arc::new(RwLock::new(platform.clone().unwrap_or_default()));
+    let platforms = Arc::new(Mutex::new(platform.clone().unwrap_or_default()));
 
     loop {
         tokio::select! {
@@ -63,11 +65,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             accept = listener.accept() => {
                 match accept {
                     Ok((socket, peer_addr)) => {
-                        // reduce latency: disable Nagle on incoming socket
-                        if let Err(e) = socket.set_nodelay(true) {
-                            warn!("No se pudo set_nodelay al socket entrante: {}", e);
-                        }
-
                         info!("Nueva conexión entrante desde {}", peer_addr);
                         let platforms = platforms.clone();
                         let stream_key = stream_key.clone();

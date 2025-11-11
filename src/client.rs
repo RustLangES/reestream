@@ -4,17 +4,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use parking_lot::Mutex;
 pub use push::PushClient;
 use rml_rtmp::handshake::{Handshake, HandshakeProcessResult, PeerType};
 use rml_rtmp::sessions::{ClientSessionResult, ServerSessionEvent, ServerSessionResult};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
 use crate::DynStream;
 use crate::config::Platform;
+use crate::img::VideoProcessor;
 use crate::server::handshake_and_create_server_session;
 
 async fn perform_client_handshake(
@@ -50,7 +51,7 @@ async fn perform_client_handshake(
 
 pub async fn handle_publisher(
     mut inbound: TcpStream,
-    platforms: Arc<RwLock<Vec<Platform>>>,
+    platforms: Arc<Mutex<Vec<Platform>>>,
     stream_key_conf: String,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("Iniciando handshake servidor con client entrante...");
@@ -58,9 +59,10 @@ pub async fn handle_publisher(
     info!("Handshake completado; esperando publish request...");
 
     // Cargamos la lista de plataformas pero NO creamos conexiones push todavía.
-    let pls = platforms.read().await.clone();
+    let pls = platforms.lock().clone();
     // Aquí guardaremos los push clients una vez que aceptemos el publish del publisher.
     let mut push_clients: Vec<PushClient> = Vec::new();
+    let video_processor = Arc::new(Mutex::new(VideoProcessor::new().unwrap()));
 
     // Si hubo bytes sobrantes tras el handshake, procesarlos.
     // Es posible que entre esos bytes ya venga la solicitud de publish; se procesará
@@ -113,7 +115,7 @@ pub async fn handle_publisher(
                 ServerSessionResult::RaisedEvent(ev) => match ev {
                     ServerSessionEvent::ConnectionRequested {
                         request_id,
-                        app_name,
+                        app_name: _,
                     } => {
                         if let Ok(out) = server_session.accept_request(request_id) {
                             for r in out {
@@ -232,6 +234,16 @@ pub async fn handle_publisher(
                     ServerSessionEvent::VideoDataReceived {
                         data, timestamp, ..
                     } => {
+                        let processed_opt = video_processor
+                            .lock()
+                            .process_rtmp_video_tag(data.clone())
+                            .await
+                            .inspect_err(|e| error!("Video processing error: {e:?}"))
+                            .ok()
+                            .flatten();
+
+                        let data = processed_opt.unwrap_or(data);
+
                         for pc in push_clients.iter() {
                             if *pc.publish_ready_rx.borrow() {
                                 let mut state = pc.client_state.write().await;
@@ -310,6 +322,8 @@ pub async fn handle_publisher(
                     }
 
                     ServerSessionEvent::StreamMetadataChanged { metadata, .. } => {
+                        video_processor.lock().update_metadata(&metadata).unwrap();
+
                         for pc in push_clients.iter() {
                             if *pc.publish_ready_rx.borrow() {
                                 let mut state = pc.client_state.write().await;
