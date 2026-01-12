@@ -64,9 +64,9 @@
           HOST_CC = lib.optionalString (os != "windows") "${pkgs.stdenv.cc.nativePrefix}cc";
           TARGET_CC = lib.optionalString (os != "windows") "${crossPkgs.stdenv.cc.targetPrefix}cc";
 
+          nativeBuildInputs = with pkgs; [ pkg-config ];
           buildInputs = with pkgs; [
             openssl
-            pkg-config
           ]
             ++ lib.optionals (os == "linux") [ stdenv.cc  glibc ]
             ++ lib.optionals (os == "macos") [ clang darwin.apple_sdk.frameworks.CoreFoundation ];
