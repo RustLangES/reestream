@@ -1,5 +1,7 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
+use clap::Parser;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
@@ -21,6 +23,13 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin> AsyncReadWrite for T {}
 
 pub type DynStream = Box<dyn AsyncReadWrite + 'static>;
 
+#[derive(clap::Parser)]
+struct Args {
+    /// Define config.toml path
+    #[clap(long, short, default_value = "config.toml")]
+    config: PathBuf,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -28,7 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_max_level(LevelFilter::DEBUG)
         .init();
 
-    let config = Config::from_file("config.toml")?;
+    let args = Args::parse();
+    let config = Config::from_file(args.config)?;
     let Config {
         rtmp_addr,
         rtmp_port,
