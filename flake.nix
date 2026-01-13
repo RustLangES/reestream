@@ -47,7 +47,7 @@
 
         mkDevShell = { arch, os, ... }: pkgs.mkShell {
           nativeBuildInputs = with pkgs; [ pkg-config ];
-          buildInputs = with pkgs; [ openssl ];
+          buildInputs = with pkgs; [ openssl cargo-release ];
           packages = with pkgs; [ rustc cargo ];
           shellHook = ''
             echo "DevShell for reestream ${arch}-${os}"
