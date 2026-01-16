@@ -109,10 +109,10 @@ impl PushClient {
 
         // send initial results (use try_send, drop if full)
         for r in initial_results {
-            if let ClientSessionResult::OutboundResponse(packet) = r {
-                if let Err(e) = tx.try_send(Bytes::from(packet.bytes.clone())) {
-                    debug!("Dropped initial packet for {}: {}", addr, e);
-                }
+            if let ClientSessionResult::OutboundResponse(packet) = r
+                && let Err(e) = tx.try_send(Bytes::from(packet.bytes.clone()))
+            {
+                debug!("Dropped initial packet for {}: {}", addr, e);
             }
         }
 

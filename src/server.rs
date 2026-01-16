@@ -9,7 +9,6 @@ pub async fn handshake_and_create_server_session(
 ) -> Result<(ServerSession, Vec<u8>), Box<dyn std::error::Error + Send + Sync>> {
     let mut hs = Handshake::new(PeerType::Server);
     let mut buf = [0u8; 4096];
-    let mut leftover = Vec::new();
 
     loop {
         let n = stream.read(&mut buf).await?;
@@ -30,23 +29,24 @@ pub async fn handshake_and_create_server_session(
                 if !response_bytes.is_empty() {
                     stream.write_all(&response_bytes).await?;
                 }
-                leftover = remaining_bytes;
-                break;
+                return Ok((
+                    {
+                        // Reduce latency: use smaller chunk size and smaller ack window to have quicker acks
+                        let mut config = ServerSessionConfig::new();
+                        config.chunk_size = 128; // smaller chunks -> lower per-chunk latency (tradeoff CPU)
+                        config.window_ack_size = 262_144; // 256KB ack window to get more frequent acks
+
+                        let (server_session, initial_results) = ServerSession::new(config)?;
+                        for res in initial_results {
+                            if let ServerSessionResult::OutboundResponse(packet) = res {
+                                stream.write_all(&packet.bytes).await?;
+                            }
+                        }
+                        server_session
+                    },
+                    remaining_bytes,
+                ));
             }
         }
     }
-
-    // Reduce latency: use smaller chunk size and smaller ack window to have quicker acks
-    let mut config = ServerSessionConfig::new();
-    config.chunk_size = 128; // smaller chunks -> lower per-chunk latency (tradeoff CPU)
-    config.window_ack_size = 262_144; // 256KB ack window to get more frequent acks
-
-    let (server_session, initial_results) = ServerSession::new(config)?;
-    for res in initial_results {
-        if let ServerSessionResult::OutboundResponse(packet) = res {
-            stream.write_all(&packet.bytes).await?;
-        }
-    }
-
-    Ok((server_session, leftover))
 }

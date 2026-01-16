@@ -4,6 +4,8 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
+#[allow(dead_code)]
+#[allow(clippy::enum_variant_names)]
 pub enum StreamKeyError {
     OAuthError(String),
     ApiError(String),
@@ -25,12 +27,14 @@ impl fmt::Display for StreamKeyError {
 impl Error for StreamKeyError {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct StreamKey {
     pub key: String,
     pub rtmp_url: String,
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct OAuth2Config {
     pub client_id: String,
     pub client_secret: String,
@@ -38,6 +42,7 @@ pub struct OAuth2Config {
     pub access_token: Option<String>,
 }
 
+#[allow(dead_code)]
 pub trait StreamKeyProvider: Send + Sync {
     const NAME: &str;
 

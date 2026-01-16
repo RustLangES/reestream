@@ -1,6 +1,7 @@
 use std::fmt;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum RelayError {
     Io(std::io::Error),
     Tls(tokio_native_tls::native_tls::Error),
@@ -41,4 +42,5 @@ impl From<tokio_native_tls::native_tls::Error> for RelayError {
     }
 }
 
+#[allow(dead_code)]
 pub type Result<T> = std::result::Result<T, RelayError>;

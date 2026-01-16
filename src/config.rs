@@ -15,7 +15,7 @@ pub struct Config {
 pub struct Platform {
     pub url: Url,
     pub key: String,
-    pub orientation: Orientation,
+    pub _orientation: Orientation,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]

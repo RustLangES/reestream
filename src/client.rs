@@ -114,7 +114,7 @@ pub async fn handle_publisher(
                 ServerSessionResult::RaisedEvent(ev) => match ev {
                     ServerSessionEvent::ConnectionRequested {
                         request_id,
-                        app_name,
+                        app_name: _,
                     } => {
                         if let Ok(out) = server_session.accept_request(request_id) {
                             for r in out {
@@ -238,7 +238,7 @@ pub async fn handle_publisher(
                                 let mut state = pc.client_state.write().await;
                                 match state.session.publish_video_data(
                                     data.clone(),
-                                    timestamp.clone(),
+                                    timestamp,
                                     true,
                                 ) {
                                     Ok(ClientSessionResult::OutboundResponse(packet)) => {
@@ -278,7 +278,7 @@ pub async fn handle_publisher(
                                 let mut state = pc.client_state.write().await;
                                 match state.session.publish_audio_data(
                                     data.clone(),
-                                    timestamp.clone(),
+                                    timestamp,
                                     true,
                                 ) {
                                     Ok(ClientSessionResult::OutboundResponse(packet)) => {
@@ -315,20 +315,19 @@ pub async fn handle_publisher(
                             if *pc.publish_ready_rx.borrow() {
                                 let mut state = pc.client_state.write().await;
                                 match state.session.publish_metadata(&metadata) {
-                                    Ok(client_res) => match client_res {
-                                        ClientSessionResult::OutboundResponse(packet) => {
-                                            if let Err(e) = pc
+                                    Ok(client_res) => {
+                                        if let ClientSessionResult::OutboundResponse(packet) =
+                                            client_res
+                                            && let Err(e) = pc
                                                 .tx_feed
                                                 .try_send(Bytes::from(packet.bytes.clone()))
-                                            {
-                                                debug!(
-                                                    "Dropped publish_metadata packet for push client: {}",
-                                                    e
-                                                );
-                                            }
+                                        {
+                                            debug!(
+                                                "Dropped publish_metadata packet for push client: {}",
+                                                e
+                                            );
                                         }
-                                        _ => {}
-                                    },
+                                    }
                                     Err(e) => {
                                         error!("Error publish_metadata to push client: {:?}", e);
                                     }
